@@ -80,7 +80,7 @@ func main() {
 	repoClickhouse := clickhouse.NewRepositoryClickhouse(dbClickhouse)
 	repoRedis := redis.NewRepositoryRedis(rdb)
 	quNats := queue.NewQueue(qu)
-	services := service.NewService(repoPostgres, repoClickhouse, repoRedis, quNats)
+	services := service.NewService(repoClickhouse, repoPostgres, repoRedis, quNats)
 	handlers := handler.NewHandler(services)
 
 	go func() {

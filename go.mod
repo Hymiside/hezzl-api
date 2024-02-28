@@ -4,6 +4,8 @@ go 1.21.1
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.5.4 // indirect
+	github.com/avito-tech/go-transaction-manager/drivers/sql/v2 v2.0.0-rc8 // indirect
+	github.com/avito-tech/go-transaction-manager/trm/v2 v2.0.0-rc8 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cloudflare/golz4 v0.0.0-20150217214814-ef862a3cdc58 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
@@ -23,6 +25,8 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/redis/go-redis/v9 v9.5.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/crypto v0.19.0 // indirect
 	golang.org/x/net v0.21.0 // indirect
 	golang.org/x/sys v0.17.0 // indirect
