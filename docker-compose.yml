@@ -1,0 +1,26 @@
+version: '3.7'
+
+services:
+  clickhouse:
+    platform: linux/amd64
+    image: yandex/clickhouse-server
+    ports:
+      - 8123:8123
+      - 9000:9000
+      - 9009:9009
+    environment:
+      CLICKHOUSE_USER: helloworld
+      CLICKHOUSE_PASSWORD: qwerty
+      CLICKHOUSE_DATABASE: hezzl
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://clickhouse:8123/ping || exit 1
+  
+  migrate:
+    image: migrate/migrate
+    volumes:
+      - ./migrations/clickhouse:/migrations/clickhouse
+    env_file: .env
+    command: ["-database", "clickhouse://clickhouse:9000?username=helloworld&password=qwerty&x-multi-statement=true", "-path", "/migrations/clickhouse", "up"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
