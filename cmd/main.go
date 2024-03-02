@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path"
 	"runtime"
+	"strconv"
 	"syscall"
 
 	"github.com/Hymiside/hezzl-api/pkg/handler"
@@ -76,11 +77,16 @@ func main() {
 		log.Fatalf("error to connect nats: %v", err)
 	}
 
+	numOfLogs, err := strconv.Atoi(os.Getenv("NUM_OF_LOGS"))
+	if err != nil {
+		numOfLogs = 25
+	}
+
 	repoPostgres := postgres.NewRepositoryPostgres(dbPostgres)
 	repoClickhouse := clickhouse.NewRepositoryClickhouse(dbClickhouse)
 	repoRedis := redis.NewRepositoryRedis(rdb)
-	quNats := queue.NewQueue(qu)
-	services := service.NewService(repoClickhouse, repoPostgres, repoRedis, quNats)
+	quNats := queue.NewQueue(qu, repoClickhouse, numOfLogs)
+	services := service.NewService(repoPostgres, repoRedis, quNats)
 	handlers := handler.NewHandler(services)
 
 	go func() {

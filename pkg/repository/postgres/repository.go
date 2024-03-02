@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/Hymiside/hezzl-api/pkg/models"
+	"github.com/Hymiside/hezzl-api/pkg/custerrors"
 )
 
 type RepositoryPostgres struct {
@@ -17,7 +18,32 @@ func NewRepositoryPostgres(db *sql.DB) *RepositoryPostgres {
 	return &RepositoryPostgres{db: db}
 }
 
-func (r *RepositoryPostgres) Goods(ctx context.Context, limit, offset int) (models.GoodsResponse, error) {
+func (r *RepositoryPostgres) Goods(ctx context.Context) ([]models.Good, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT id, name, description, priority, removed, created_at FROM goods")
+	if err != nil {
+		return nil, fmt.Errorf("error to get goods: %v", err)
+	}
+
+	var goods []models.Good
+	for rows.Next() {
+		var good models.Good
+		err = rows.Scan(
+			&good.ID,
+			&good.Name,
+			&good.Description,
+			&good.Priority,
+			&good.Removed,
+			&good.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error to scan goods: %v", err)
+		}
+		goods = append(goods, good)
+	}
+	return goods, nil
+}
+
+func (r *RepositoryPostgres) GoodsWithLimitAndOffset(ctx context.Context, limit, offset int) (models.GoodsResponse, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.GoodsResponse{}, fmt.Errorf("error to begin transaction: %v", err)
@@ -164,7 +190,7 @@ func (r *RepositoryPostgres) CreateGood(ctx context.Context, projectID int, name
 }
 
 func (r *RepositoryPostgres) UpdateGood(ctx context.Context, good models.Good, goodID, projectID int) (models.Good, error) {
-	tx, err := r.db.Begin()
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.Good{}, err
 	}
@@ -178,7 +204,9 @@ func (r *RepositoryPostgres) UpdateGood(ctx context.Context, good models.Good, g
 			description = CASE WHEN $2 = '' THEN description ELSE $2 END,
 			priority = CASE WHEN $3 = 0 THEN priority ELSE $3 END,
 			removed = CASE WHEN $4 = false THEN removed ELSE $4 END
-		WHERE id = $5 AND project_id = $6 RETURNING id`,
+		WHERE 
+			id = $5 AND project_id = $6 AND removed = false 
+		RETURNING id`,
 		good.Name,
 		good.Description,
 		good.Priority,
@@ -192,7 +220,7 @@ func (r *RepositoryPostgres) UpdateGood(ctx context.Context, good models.Good, g
 	var id int
 	if err := row.Scan(&id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return models.Good{}, fmt.Errorf("good not found: %v", err)
+			return models.Good{}, custerrors.ErrNotFound
 		}
 		return models.Good{}, fmt.Errorf("error to scan id: %v", err)
 	}
@@ -214,21 +242,127 @@ func (r *RepositoryPostgres) UpdateGood(ctx context.Context, good models.Good, g
 		return models.Good{}, fmt.Errorf("error to get good: %v", err)
 	}
 
-	var goodUpdated models.Good
+	var updatedGood models.Good
 	if err := row.Scan(
-		&goodUpdated.ID,
-		&goodUpdated.ProjectID,
-		&goodUpdated.Name,
-		&goodUpdated.Description,
-		&goodUpdated.Priority,
-		&goodUpdated.Removed,
-		&goodUpdated.CreatedAt,
+		&updatedGood.ID,
+		&updatedGood.ProjectID,
+		&updatedGood.Name,
+		&updatedGood.Description,
+		&updatedGood.Priority,
+		&updatedGood.Removed,
+		&updatedGood.CreatedAt,
 	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.Good{}, custerrors.ErrNotFound
+		}
 		return models.Good{}, fmt.Errorf("error to scan good: %v", err)
 	}
 	
 	if err = tx.Commit(); err != nil {
 		return models.Good{}, fmt.Errorf("error to commit transaction: %v", err)
 	}
-	return goodUpdated, nil
+	return updatedGood, nil
+}
+
+func (r *RepositoryPostgres) DeleteGood(ctx context.Context, goodID, projectID int) (models.Good, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Good{}, err
+	}
+	defer tx.Rollback()
+
+	row := r.db.QueryRowContext(
+		ctx, 
+		`UPDATE goods 
+		SET removed = true 
+		WHERE id = $1 
+			AND project_id = $2 
+			AND removed = false 
+		RETURNING id`, 
+		goodID, projectID)
+	if err := row.Err(); err != nil {
+		return models.Good{}, fmt.Errorf("error to delete good: %v", err)
+	}
+
+	var id int
+	if err := row.Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.Good{}, custerrors.ErrNotFound
+		}
+		return models.Good{}, fmt.Errorf("error to scan id: %v", err)
+	}
+
+	removedGood := models.Good{
+		ID: id,
+		ProjectID: projectID,
+		Removed: true,
+	}
+
+	if err = tx.Commit(); err != nil {
+		return models.Good{}, fmt.Errorf("error to commit transaction: %v", err)
+	}
+	return removedGood, nil
+}
+
+func (r *RepositoryPostgres) ReprioritizeGood(ctx context.Context, goodID, projectID, priority int) ([]models.ReprioritizeGoodResponse, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(
+		ctx, 
+		`UPDATE goods
+			SET priority = priority + $1
+		WHERE id >= (
+			SELECT id
+			FROM goods
+			WHERE id = $2 AND project_id = $3
+		)`,
+		priority, goodID, projectID,
+	); err != nil {
+		return nil, fmt.Errorf("error to reprioritize good: %v", err)
+	}
+
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT 
+			id, 
+			priority
+		FROM goods 
+		WHERE id >= (
+			SELECT id
+			FROM goods
+			WHERE id = $1 AND project_id = $2
+		)`, 
+		goodID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("error to get good: %v", err)
+	}
+
+	var reprioritizedGoods []models.ReprioritizeGoodResponse
+	for rows.Next() {
+		var reprioritizedGood models.ReprioritizeGoodResponse
+		if err := rows.Scan(
+			&reprioritizedGood.ID,
+			&reprioritizedGood.Priority,
+		); err != nil {
+			return nil, fmt.Errorf("error to scan good: %v", err)
+		}
+		reprioritizedGoods = append(reprioritizedGoods, reprioritizedGood)
+	}
+
+	if reprioritizedGoods == nil {
+		return nil, custerrors.ErrNotFound
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error to get good: %v", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("error to commit transaction: %v", err)
+	}
+	return reprioritizedGoods, nil
 }

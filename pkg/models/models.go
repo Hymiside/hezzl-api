@@ -22,6 +22,15 @@ type CreateGoodRequest struct {
 	Name string `json:"name" validate:"required"`
 }
 
+type ReprioritizeGoodRequest struct {
+	Priority int `json:"newPriority" validate:"required"`
+}
+
+type ReprioritizeGoodResponse struct {
+	ID        string `json:"id"`
+	Priority    int    `json:"priority"`
+}
+
 type Meta struct {
 	Limit   int `json:"limit"`
 	Ofset   int `json:"offset"`
